@@ -1,6 +1,8 @@
 
 from rest_framework import serializers
 from .models import Exam, Grade, Timetable
+from core.models import Class, Subject, StudentProfile, User
+
 
 class ExamSerializer(serializers.ModelSerializer):
     class_name = serializers.CharField(source='class_assigned.name', read_only=True)
@@ -40,3 +42,32 @@ class TimetableSerializer(serializers.ModelSerializer):
         fields = ['id', 'class_assigned', 'class_name', 'class_section', 'subject',
                  'subject_name', 'teacher', 'teacher_name', 'weekday', 'weekday_name',
                  'start_time', 'end_time', 'room_number', 'created_at']
+
+
+
+
+class ClassSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Class
+        fields = ['id', 'name', 'section']
+
+class SubjectSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Subject
+        fields = ['id', 'name']
+
+class StudentProfileSerializer(serializers.ModelSerializer):
+    user = serializers.SerializerMethodField()
+    roll_number = serializers.CharField(source='roll_no', required=False)
+
+    class Meta:
+        model = StudentProfile
+        fields = ['id', 'user', 'roll_number']
+
+    def get_user(self, obj):
+        return {
+            "id": obj.user.id,
+            "first_name": obj.user.first_name,
+            "last_name": obj.user.last_name,
+            "full_name": obj.user.get_full_name(),
+        }

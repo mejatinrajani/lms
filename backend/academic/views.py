@@ -79,3 +79,41 @@ class TimetableListCreateView(generics.ListCreateAPIView):
                 queryset = queryset.filter(class_assigned__in=children_classes)
         
         return queryset.order_by('weekday', 'start_time')
+    
+
+from rest_framework import generics, permissions
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
+from core.models import Class, Subject, StudentProfile
+from .serializers import ClassSerializer, SubjectSerializer, StudentProfileSerializer
+
+class ClassListView(generics.ListAPIView):
+    serializer_class = ClassSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        # Students: their class only
+        if user.role == 'STUDENT' and hasattr(user, 'student_profile'):
+            return Class.objects.filter(id=user.student_profile.class_assigned_id)
+        # Principals, Teachers, etc: all classes
+        return Class.objects.all()
+
+class SubjectListView(generics.ListAPIView):
+    serializer_class = SubjectSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        # Students: subjects for their class only
+        if user.role == 'STUDENT' and hasattr(user, 'student_profile'):
+            return Subject.objects.filter(class_assigned=user.student_profile.class_assigned)
+        # Principals, Teachers, etc: all subjects
+        return Subject.objects.all()
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def students_in_class(request, class_id):
+    students = StudentProfile.objects.filter(class_assigned_id=class_id)
+    serializer = StudentProfileSerializer(students, many=True)
+    return Response(serializer.data)
