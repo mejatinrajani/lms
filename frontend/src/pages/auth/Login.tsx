@@ -1,113 +1,98 @@
-import { useState } from "react";
-import { motion } from "framer-motion";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, Eye, EyeOff } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
-import { useAuth } from "@/components/auth/AuthContext";
-import { useToast } from "@/hooks/use-toast";
+import React, { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Loader2, Eye, EyeOff } from 'lucide-react';
+import { useAuth } from '@/components/auth/AuthContext';
+import { useForm } from 'react-hook-form';
+import { toast } from 'sonner';
 
-const Login = () => {
-  const [formData, setFormData] = useState({
-    email: "",
-    password: "",
-  });
+interface LoginForm {
+  username: string;
+  password: string;
+}
+
+export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
 
-  const { login } = useAuth();
+  const { login, user } = useAuth();
   const navigate = useNavigate();
-  const { toast } = useToast();
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-    setError("");
-  };
+  const { register, handleSubmit, formState: { errors } } = useForm<LoginForm>();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const onSubmit = async (data: LoginForm) => {
     setIsLoading(true);
-    setError("");
-
-    // Validate form
-    if (!formData.email || !formData.password) {
-      setError('Please fill in all fields');
-      setIsLoading(false);
-      return;
-    }
+    setError('');
 
     try {
-      const response = await login(formData.email, formData.password);
-
-      if (response) {
-        toast({
-          title: "Login successful",
-          description: "Welcome back!",
-        });
-        // Redirect based on user role
-        if (response.user && response.user.role) {
-          navigate(`/${response.user.role.toLowerCase()}`);
-        } else {
-          navigate("/dashboard");
-        }
+      await login({ username: data.username, password: data.password });
+      toast.success('Login successful!');
+      if (user && user.role) {
+        const redirectPath = getDashboardPath(user.role);
+        navigate(redirectPath);
       } else {
-        setError('Invalid response from server. Please try again.');
+        setError('User info not available after login.');
       }
-    } catch (error: any) {
-      console.error('Login error:', error);
-
+    } catch (err: any) {
+      // Safely extract error message
       let errorMessage = 'Login failed. Please try again.';
-
-      if (error.response) {
-        const status = error.response.status;
-        const data = error.response.data;
-
-        if (status === 401) {
-          errorMessage = 'Invalid email or password. Please check your credentials.';
-        } else if (status === 400) {
-          errorMessage = data.detail || data.message || 'Invalid login data provided.';
-        } else if (status >= 500) {
-          errorMessage = 'Server error. Please try again later.';
-        } else {
-          errorMessage = data.detail || data.message || errorMessage;
-        }
-      } else if (error.request) {
-        errorMessage = 'Unable to connect to server. Please check your internet connection.';
-      } else {
-          errorMessage = error.message || 'An unexpected error occurred.';
+      if (err?.response?.data?.detail) {
+        errorMessage = err.response.data.detail;
+      } else if (err?.response?.data?.error) {
+        errorMessage = err.response.data.error;
+      } else if (err?.message) {
+        errorMessage = err.message;
       }
-
       setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setIsLoading(false);
     }
   };
 
+  const getDashboardPath = (role: string) => {
+    switch (role) {
+      case 'DEVELOPER':
+        return '/developer/dashboard';
+      case 'PRINCIPAL':
+        return '/principal/dashboard';
+      case 'TEACHER':
+        return '/teacher/dashboard';
+      case 'STUDENT':
+        return '/student/dashboard';
+      case 'PARENT':
+        return '/parent/dashboard';
+      default:
+        return '/dashboard';
+    }
+  };
+
+  const demoCredentials = [
+    { role: 'Developer', username: 'admin', password: 'admin123' },
+    { role: 'Principal', username: 'principal', password: 'principal123' },
+    { role: 'Teacher', username: 'teacher1', password: 'teacher123' },
+    { role: 'Student', username: 'student1', password: 'student123' },
+    { role: 'Parent', username: 'parent1', password: 'parent123' },
+  ];
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="w-full max-w-md"
-      >
-        <Card className="shadow-lg">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+      <div className="w-full max-w-md">
+        <Card>
           <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl font-bold text-center">Sign In</CardTitle>
+            <CardTitle className="text-2xl font-bold text-center">Welcome Back</CardTitle>
             <CardDescription className="text-center">
-              Enter your credentials to access the LMS portal
+              Sign in to your School LMS account
             </CardDescription>
           </CardHeader>
+
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               {error && (
                 <Alert variant="destructive">
                   <AlertDescription>{error}</AlertDescription>
@@ -115,17 +100,20 @@ const Login = () => {
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="username">Username or Email</Label>
                 <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  placeholder="Enter your email"
-                  value={formData.email}
-                  onChange={handleInputChange}
-                  required
-                  disabled={isLoading}
+                  id="username"
+                  type="text"
+                  placeholder="Enter your username or email"
+                  {...register('username', { 
+                    required: 'Username or emai; is required',
+                    minLength: { value: 3, message: 'Username must be at least 3 characters' }
+                  })}
+                  className={errors.username ? 'border-red-500' : ''}
                 />
+                {errors.username && (
+                  <p className="text-sm text-red-600">{errors.username.message}</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -133,13 +121,13 @@ const Login = () => {
                 <div className="relative">
                   <Input
                     id="password"
-                    name="password"
-                    type={showPassword ? "text" : "password"}
+                    type={showPassword ? 'text' : 'password'}
                     placeholder="Enter your password"
-                    value={formData.password}
-                    onChange={handleInputChange}
-                    required
-                    disabled={isLoading}
+                    {...register('password', { 
+                      required: 'Password is required',
+                      minLength: { value: 6, message: 'Password must be at least 6 characters' }
+                    })}
+                    className={errors.password ? 'border-red-500' : ''}
                   />
                   <Button
                     type="button"
@@ -147,7 +135,6 @@ const Login = () => {
                     size="sm"
                     className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                     onClick={() => setShowPassword(!showPassword)}
-                    disabled={isLoading}
                   >
                     {showPassword ? (
                       <EyeOff className="h-4 w-4" />
@@ -156,6 +143,9 @@ const Login = () => {
                     )}
                   </Button>
                 </div>
+                {errors.password && (
+                  <p className="text-sm text-red-600">{errors.password.message}</p>
+                )}
               </div>
 
               <Button 
@@ -169,35 +159,37 @@ const Login = () => {
                     Signing in...
                   </>
                 ) : (
-                  "Sign In"
+                  'Sign In'
                 )}
               </Button>
-
-              <div className="text-center text-sm">
-                <span className="text-muted-foreground">Don't have an account? </span>
-                <Link 
-                  to="/signup" 
-                  className="text-primary hover:underline font-medium"
-                >
-                  Sign up
-                </Link>
-              </div>
             </form>
 
-            <div className="mt-6 pt-4 border-t">
-              <div className="text-xs text-muted-foreground space-y-1">
-                <div><strong>Demo Accounts:</strong></div>
-                <div>Principal: principal@school.edu / password</div>
-                <div>Teacher: teacher@school.edu / password</div>
-                <div>Student: student@school.edu / password</div>
-                <div>Parent: parent@school.edu / password</div>
+            {/* Demo Credentials */}
+            <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+              <h4 className="text-sm font-medium text-gray-900 mb-2">Demo Accounts:</h4>
+              <div className="space-y-1 text-xs text-gray-600">
+                {demoCredentials.map((cred, index) => (
+                  <div key={index} className="flex justify-between">
+                    <span className="font-medium">{cred.role}:</span>
+                    <span>{cred.username} / {cred.password}</span>
+                  </div>
+                ))}
               </div>
             </div>
           </CardContent>
+
+          <CardFooter>
+            <div className="text-center w-full">
+              <p className="text-sm text-gray-600">
+                Don't have an account?{' '}
+                <Link to="/signup" className="text-blue-600 hover:underline font-medium">
+                  Sign up
+                </Link>
+              </p>
+            </div>
+          </CardFooter>
         </Card>
-      </motion.div>
+      </div>
     </div>
   );
-};
-
-export default Login;
+}

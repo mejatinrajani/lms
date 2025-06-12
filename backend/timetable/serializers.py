@@ -1,34 +1,23 @@
-
 from rest_framework import serializers
-from .models import TimeSlot, Timetable, TeacherAvailability
-from core.serializers import SubjectSerializer, TeacherProfileSerializer, ClassSerializer
+from .models import TimeSlot, Timetable
 
 class TimeSlotSerializer(serializers.ModelSerializer):
     class Meta:
         model = TimeSlot
-        fields = ['id', 'start_time', 'end_time', 'is_break', 'break_name', 'order']
+        fields = ['id', 'period_number', 'start_time', 'end_time']
 
 class TimetableSerializer(serializers.ModelSerializer):
-    subject_details = SubjectSerializer(source='subject', read_only=True)
-    teacher_details = TeacherProfileSerializer(source='teacher', read_only=True)
-    class_details = ClassSerializer(source='class_assigned', read_only=True)
-    time_slot_details = TimeSlotSerializer(source='time_slot', read_only=True)
-    
+    class_name = serializers.CharField(source='class_assigned.name', read_only=True)
+    section_name = serializers.CharField(source='section.name', read_only=True)
+    created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
+
     class Meta:
         model = Timetable
         fields = [
-            'id', 'class_assigned', 'subject', 'teacher', 'day_of_week',
-            'time_slot', 'room_number', 'is_active', 'created_at',
-            'subject_details', 'teacher_details', 'class_details', 'time_slot_details'
+            'id', 'class_assigned', 'class_name',
+            'section', 'section_name', 'day_of_week', 'time_slot',
+            'subject', 'teacher', 'room_number', 'academic_year',
+            'is_active', 'created_by', 'created_by_name',
+            'created_at', 'updated_at'
         ]
-
-class TeacherAvailabilitySerializer(serializers.ModelSerializer):
-    teacher_details = TeacherProfileSerializer(source='teacher', read_only=True)
-    time_slot_details = TimeSlotSerializer(source='time_slot', read_only=True)
-    
-    class Meta:
-        model = TeacherAvailability
-        fields = [
-            'id', 'teacher', 'day_of_week', 'time_slot', 'is_available',
-            'reason', 'teacher_details', 'time_slot_details'
-        ]
+        read_only_fields = ['created_by', 'created_at', 'updated_at']

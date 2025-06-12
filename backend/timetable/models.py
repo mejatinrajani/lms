@@ -1,19 +1,16 @@
-
 from django.db import models
-from core.models import School, Class, Subject, TeacherProfile
-from django.core.validators import MinValueValidator, MaxValueValidator
+from core.models import User, TeacherProfile, Subject, Section, Class
 
 class TimeSlot(models.Model):
-    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='time_slots')
     start_time = models.TimeField()
     end_time = models.TimeField()
-    is_break = models.BooleanField(default=False)
-    break_name = models.CharField(max_length=50, blank=True)
-    order = models.PositiveIntegerField()
-    
+    period_number = models.IntegerField()
+
     class Meta:
-        ordering = ['order']
-        unique_together = ['school', 'order']
+        ordering = ['period_number']
+
+    def __str__(self):
+        return f"Period {self.period_number}: {self.start_time} - {self.end_time}"
 
 class Timetable(models.Model):
     DAYS_OF_WEEK = [
@@ -25,28 +22,43 @@ class Timetable(models.Model):
         ('saturday', 'Saturday'),
         ('sunday', 'Sunday'),
     ]
-    
-    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='academic_timetables')
-    class_assigned = models.ForeignKey(Class, on_delete=models.CASCADE, related_name='academic_timetables')
-    subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name='academic_timetables', null=True, blank=True)
-    teacher = models.ForeignKey(TeacherProfile, on_delete=models.CASCADE, related_name='academic_timetables', null=True, blank=True)
+
+    class_assigned = models.ForeignKey(Class, on_delete=models.CASCADE)
+    section = models.ForeignKey(Section, on_delete=models.CASCADE)
     day_of_week = models.CharField(max_length=10, choices=DAYS_OF_WEEK)
-    time_slot = models.ForeignKey(TimeSlot, on_delete=models.CASCADE, related_name='academic_timetables')
-    room_number = models.CharField(max_length=50, blank=True)
+    time_slot = models.ForeignKey(TimeSlot, on_delete=models.CASCADE)
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE)
+    teacher = models.ForeignKey(TeacherProfile, on_delete=models.CASCADE)
+    room_number = models.CharField(max_length=20, blank=True)
     is_active = models.BooleanField(default=True)
+    academic_year = models.CharField(max_length=9)  # e.g., "2023-2024"
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
-    class Meta:
-        unique_together = ['class_assigned', 'day_of_week', 'time_slot']
-        ordering = ['day_of_week', 'time_slot__order']
 
-class TeacherAvailability(models.Model):
-    teacher = models.ForeignKey(TeacherProfile, on_delete=models.CASCADE, related_name='availability')
-    day_of_week = models.CharField(max_length=10, choices=Timetable.DAYS_OF_WEEK)
-    time_slot = models.ForeignKey(TimeSlot, on_delete=models.CASCADE)
-    is_available = models.BooleanField(default=True)
-    reason = models.CharField(max_length=200, blank=True)
-    
     class Meta:
-        unique_together = ['teacher', 'day_of_week', 'time_slot']
+        unique_together = ['class_assigned', 'section', 'day_of_week', 'time_slot', 'academic_year']
+
+    def __str__(self):
+        return f"{self.class_assigned.name}-{self.section.name} - {self.day_of_week} - {self.time_slot} - {self.subject.name}"
+
+class TeacherTimetable(models.Model):
+    teacher = models.ForeignKey(TeacherProfile, on_delete=models.CASCADE)
+    timetable = models.ForeignKey(Timetable, on_delete=models.CASCADE)
+
+    class Meta:
+        unique_together = ['teacher', 'timetable']
+
+    def __str__(self):
+        return f"{self.teacher.full_name} - {self.timetable}"
+
+class TimetableTemplate(models.Model):
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+    class_assigned = models.ForeignKey(Class, on_delete=models.CASCADE)
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"{self.name} - {self.class_assigned.name}"

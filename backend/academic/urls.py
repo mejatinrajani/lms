@@ -1,8 +1,20 @@
-from django.urls import path
-from .views import ClassListView, SubjectListView, students_in_class
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import (
+    ExamTypeViewSet, ExamViewSet, MarkViewSet, AcademicYearViewSet, ClassSubjectViewSet,
+    ClassViewSet, SectionViewSet, SubjectViewSet
+)
+
+router = DefaultRouter()
+router.register(r'exam-types', ExamTypeViewSet)
+router.register(r'exams', ExamViewSet)
+router.register(r'marks', MarkViewSet)
+router.register(r'academic-years', AcademicYearViewSet)
+router.register(r'class-subjects', ClassSubjectViewSet)
+router.register(r'classes', ClassViewSet)
+router.register(r'sections', SectionViewSet)
+router.register(r'subjects', SubjectViewSet)
 
 urlpatterns = [
-    path('classes/', ClassListView.as_view(), name='class-list'),
-    path('subjects/', SubjectListView.as_view(), name='subject-list'),
-    path('students/<int:class_id>/', students_in_class, name='students-in-class'),
+    path('', include(router.urls)),
 ]

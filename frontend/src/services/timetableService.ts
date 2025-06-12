@@ -1,5 +1,5 @@
 
-import { apiService } from './apiService';
+import api  from './api';
 
 export interface TimeSlot {
   id: number;
@@ -28,39 +28,39 @@ export interface Timetable {
 
 export const timetableService = {
   // Time Slots
-  getTimeSlots: () => apiService.get<TimeSlot[]>('/timetable/time-slots/'),
+  getTimeSlots: () =>api.get<TimeSlot[]>('/timetable/time-slots/'),
   
   createTimeSlot: (data: Partial<TimeSlot>) => 
-    apiService.post<TimeSlot>('/timetable/time-slots/', data),
+    api.post<TimeSlot>('/timetable/time-slots/', data),
   
   // Timetables
-  getTimetables: () => apiService.get<Timetable[]>('/timetable/timetables/'),
+  getTimetables: () =>api.get<Timetable[]>('/timetable/timetables/'),
   
   getTimetableByClass: (classId: number, day?: string) => {
     const params = new URLSearchParams();
     params.append('class_id', classId.toString());
     if (day) params.append('day', day);
-    return apiService.get<Timetable[]>(`/timetable/timetables/by_class/?${params}`);
+    return api.get<Timetable[]>(`/timetable/timetables/by_class/?${params}`);
   },
   
   getTimetableByTeacher: (teacherId: number, day?: string) => {
     const params = new URLSearchParams();
     params.append('teacher_id', teacherId.toString());
     if (day) params.append('day', day);
-    return apiService.get<Timetable[]>(`/timetable/timetables/by_teacher/?${params}`);
+    return api.get<Timetable[]>(`/timetable/timetables/by_teacher/?${params}`);
   },
   
   createTimetable: (data: Partial<Timetable>) => 
-    apiService.post<Timetable>('/timetable/timetables/', data),
+    api.post<Timetable>('/timetable/timetables/', data),
   
   updateTimetable: (id: number, data: Partial<Timetable>) =>
-    apiService.put<Timetable>(`/timetable/timetables/${id}/`, data),
+    api.put<Timetable>(`/timetable/timetables/${id}/`, data),
   
-  deleteTimetable: (id: number) => apiService.delete(`/timetable/timetables/${id}/`),
+  deleteTimetable: (id: number) =>api.delete(`/timetable/timetables/${id}/`),
   
   // Teacher Availability
-  getTeacherAvailability: () => apiService.get('/timetable/teacher-availability/'),
+  getTeacherAvailability: () =>api.get('/timetable/teacher-availability/'),
   
   updateTeacherAvailability: (data: any) =>
-    apiService.post('/timetable/teacher-availability/', data),
+    api.post('/timetable/teacher-availability/', data),
 };

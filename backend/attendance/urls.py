@@ -1,11 +1,11 @@
-from django.urls import path
-from . import views
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import AttendanceRecordViewSet, AttendanceStatusViewSet
+
+router = DefaultRouter()
+router.register(r'attendance', AttendanceRecordViewSet, basename='attendance')
+router.register(r'statuses', AttendanceStatusViewSet, basename='attendancestatus')
 
 urlpatterns = [
-    path('', views.AttendanceRecordListView.as_view(), name='attendance-list'),
-    path('bulk_mark/', views.mark_attendance_bulk, name='bulk-mark-attendance'),
-    path('statistics/', views.attendance_statistics, name='attendance-statistics'),
-    path('class-report/<int:class_id>/', views.class_attendance_report, name='class-attendance-report'),
-    path('summary/', views.AttendanceSummaryListView.as_view(), name='attendance-summary'),
-    path('status/', views.attendance_status, name='attendance-status'),
+    path('', include(router.urls)),
 ]

@@ -1,22 +1,39 @@
-
-from rest_framework import status, generics
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework import generics, status, permissions
 from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
-from django.contrib.auth import authenticate
-from django.db import transaction
-from .serializers import (
-    UserRegistrationSerializer, UserLoginSerializer, 
-    UserProfileSerializer, ChangePasswordSerializer
-)
-from core.models import User, StudentProfile, TeacherProfile, ParentProfile, PrincipalProfile, DeveloperProfile
+from django.contrib.auth import get_user_model
+
+from .serializers import UserRegistrationSerializer, UserLoginSerializer, PasswordChangeSerializer, ProfileUpdateSerializer
+from core.models import User, TeacherProfile, StudentProfile, ParentProfile
+from core.serializers import UserSerializer
+
+User = get_user_model()
+
+class RegisterView(generics.CreateAPIView):
+    queryset = User.objects.all()
+    serializer_class = UserRegistrationSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+
+        # Generate tokens
+        refresh = RefreshToken.for_user(user)
+
+        return Response({
+            'user': UserSerializer(user).data,
+            'refresh': str(refresh),
+            'access': str(refresh.access_token),
+            'message': 'User registered successfully'
+        }, status=status.HTTP_201_CREATED)
 
 class CustomTokenObtainPairView(TokenObtainPairView):
-    """Custom login view with user profile data"""
     serializer_class = UserLoginSerializer
-    
+
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         try:
@@ -27,161 +44,111 @@ class CustomTokenObtainPairView(TokenObtainPairView):
                 'detail': str(e)
             }, status=status.HTTP_401_UNAUTHORIZED)
         
-        user = serializer.validated_data['user']
-        refresh = RefreshToken.for_user(user)
-        
-        # Get user profile based on role
-        profile_data = None
+         # Print the tokens to the console
+        access = serializer.validated_data.get('access')
+        refresh = serializer.validated_data.get('refresh')
+        print(f"[LOGIN DEBUG] Access token: {access}")
+        print(f"[LOGIN DEBUG] Refresh token: {refresh}")
+
+        return Response(serializer.validated_data, status=status.HTTP_200_OK)
+
+class LogoutView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        print("[LOGOUT DEBUG] Request user:", request.user)
+        print("[LOGOUT DEBUG] Request data:", request.data)
         try:
-            if user.is_student:
-                profile = StudentProfile.objects.get(user=user)
-                profile_data = {
-                    'student_id': profile.student_id,
-                    'full_name': profile.full_name,
-                    'school': profile.school.name,
-                    'sections': [str(section) for section in profile.sections.all()]
-                }
-            elif user.is_teacher:
+            refresh_token = request.data["refresh"]
+            print("[LOGOUT DEBUG] Refresh token received:", refresh_token)
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+            print("[LOGOUT DEBUG] Token blacklisted successfully.")
+            return Response({'message': 'Successfully logged out'}, status=status.HTTP_205_RESET_CONTENT)
+        except Exception as e:
+            print("[LOGOUT DEBUG] Exception:", e)
+            return Response({'error': 'Invalid token', 'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+class ChangePasswordView(generics.UpdateAPIView):
+    serializer_class = PasswordChangeSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        return self.request.user
+
+    def update(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user
+        user.set_password(serializer.validated_data['new_password'])
+        user.save()
+
+        return Response({'message': 'Password changed successfully'}, status=status.HTTP_200_OK)
+
+class ProfileView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        user_data = UserSerializer(user).data
+
+        # Add profile data based on role
+        profile_data = {}
+        try:
+            if user.role == 'TEACHER':
                 profile = TeacherProfile.objects.get(user=user)
                 profile_data = {
                     'employee_id': profile.employee_id,
-                    'full_name': profile.full_name,
                     'school': profile.school.name,
-                    'subjects': profile.subjects
+                    'subjects': [subject.name for subject in profile.subjects.all()],
+                    'sections': [str(section) for section in profile.sections.all()],
+                    'qualification': profile.qualification,
+                    'experience_years': profile.experience_years
                 }
-            elif user.is_parent:
+            elif user.role == 'STUDENT':
+                profile = StudentProfile.objects.get(user=user)
+                profile_data = {
+                    'student_id': profile.student_id,
+                    'school': profile.school.name,
+                    'class': profile.class_assigned.name,
+                    'section': profile.section.name,
+                    'roll_number': profile.roll_number,
+                    'admission_date': profile.admission_date,
+                    'blood_group': profile.blood_group,
+                    'emergency_contact': profile.emergency_contact
+                }
+            elif user.role == 'PARENT':
                 profile = ParentProfile.objects.get(user=user)
                 profile_data = {
-                    'full_name': profile.full_name,
-                    'school': profile.school.name,
-                    'children': [child.full_name for child in profile.children.all()]
+                    'children': [
+                        {
+                            'id': child.id,
+                            'name': child.full_name,
+                            'student_id': child.student_id,
+                            'class': f"{child.class_assigned.name}-{child.section.name}"
+                        } for child in profile.children.all()
+                    ],
+                    'occupation': profile.occupation
                 }
-            elif user.is_principal:
-                profile = PrincipalProfile.objects.get(user=user)
-                profile_data = {
-                    'employee_id': profile.employee_id,
-                    'full_name': profile.full_name,
-                    'school': profile.school.name
-                }
-            elif user.is_developer:
-                profile = DeveloperProfile.objects.get(user=user)
-                profile_data = {
-                    'full_name': profile.full_name,
-                    'access_level': profile.access_level
-                }
-        except Exception:
-            profile_data = {'full_name': f"{user.first_name} {user.last_name}"}
-        
+        except:
+            pass
+
         return Response({
-            'access': str(refresh.access_token),
-            'refresh': str(refresh),
-            'user': {
-                'id': str(user.id),
-                'email': user.email,
-                'role': user.role,
-                'is_active': user.is_active,
-                'profile': profile_data
-            }
-        }, status=status.HTTP_200_OK)
+            'user': user_data,
+            'profile': profile_data
+        })
 
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def register_user(request):
-    """Register a new user with profile"""
-    serializer = UserRegistrationSerializer(data=request.data)
-    
-    if serializer.is_valid():
-        try:
-            with transaction.atomic():
-                user = serializer.save()
-                refresh = RefreshToken.for_user(user)
-                
-                return Response({
-                    'message': 'User registered successfully',
-                    'access': str(refresh.access_token),
-                    'refresh': str(refresh),
-                    'user': {
-                        'id': str(user.id),
-                        'email': user.email,
-                        'role': user.role
-                    }
-                }, status=status.HTTP_201_CREATED)
-        except Exception as e:
-            return Response({
-                'error': 'Registration failed',
-                'detail': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
-    
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+class ProfileUpdateView(generics.UpdateAPIView):
+    serializer_class = ProfileUpdateSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def logout_user(request):
-    """Logout user by blacklisting refresh token"""
-    try:
-        refresh_token = request.data.get('refresh_token')
-        token = RefreshToken(refresh_token)
-        token.blacklist()
-        return Response({'message': 'Successfully logged out'}, status=status.HTTP_200_OK)
-    except Exception as e:
-        return Response({'error': 'Invalid token'}, status=status.HTTP_400_BAD_REQUEST)
+    def get_object(self):
+        return self.request.user
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def user_profile(request):
-    """Get current user profile"""
-    serializer = UserProfileSerializer(request.user)
-    return Response(serializer.data, status=status.HTTP_200_OK)
-
-@api_view(['PUT'])
-@permission_classes([IsAuthenticated])
-def update_profile(request):
-    """Update user profile"""
-    serializer = UserProfileSerializer(request.user, data=request.data, partial=True)
-    
-    if serializer.is_valid():
-        serializer.save()
+    def update(self, request, *args, **kwargs):
+        response = super().update(request, *args, **kwargs)
         return Response({
-            'message': 'Profile updated successfully',
-            'user': serializer.data
-        }, status=status.HTTP_200_OK)
-    
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def change_password(request):
-    """Change user password"""
-    serializer = ChangePasswordSerializer(data=request.data)
-    
-    if serializer.is_valid():
-        user = request.user
-        
-        # Check old password
-        if not user.check_password(serializer.validated_data['old_password']):
-            return Response({
-                'error': 'Old password is incorrect'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Set new password
-        user.set_password(serializer.validated_data['new_password'])
-        user.save()
-        
-        return Response({
-            'message': 'Password changed successfully'
-        }, status=status.HTTP_200_OK)
-    
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def verify_token(request):
-    """Verify if token is valid"""
-    return Response({
-        'valid': True,
-        'user': {
-            'id': str(request.user.id),
-            'email': request.user.email,
-            'role': request.user.role
-        }
-    }, status=status.HTTP_200_OK)
+            'user': response.data,
+            'message': 'Profile updated successfully'
+        })

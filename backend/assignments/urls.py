@@ -1,10 +1,11 @@
 
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from . import views
+from .views import AssignmentViewSet, SubmissionViewSet
 
 router = DefaultRouter()
-# Add assignment viewsets here when created
+router.register(r'assignments', AssignmentViewSet)
+router.register(r'submissions', SubmissionViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),

@@ -1,154 +1,137 @@
-
 from rest_framework import serializers
-from django.contrib.auth import authenticate
-from django.contrib.auth.password_validation import validate_password
-from django.utils import timezone
-from core.models import User, StudentProfile, TeacherProfile, ParentProfile, PrincipalProfile, DeveloperProfile, School
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from core.models import User, TeacherProfile, StudentProfile, ParentProfile
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
-    """User registration serializer"""
-    password = serializers.CharField(write_only=True, validators=[validate_password])
+    password = serializers.CharField(write_only=True, min_length=8)
     password_confirm = serializers.CharField(write_only=True)
-    first_name = serializers.CharField(max_length=100)
-    last_name = serializers.CharField(max_length=100)
-    school_id = serializers.UUIDField(required=False)
-    
+    phone = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    date_of_birth = serializers.DateField(required=False, allow_null=True)
+    address = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
     class Meta:
         model = User
-        fields = ['email', 'username', 'password', 'password_confirm', 'role', 
-                 'first_name', 'last_name', 'school_id']
-    
+        fields = [
+            'username', 'email', 'password', 'password_confirm', 'first_name',
+            'last_name', 'role', 'phone', 'date_of_birth', 'address'
+        ]
+
     def validate(self, attrs):
         if attrs['password'] != attrs['password_confirm']:
             raise serializers.ValidationError("Passwords don't match")
         return attrs
-    
+
     def create(self, validated_data):
-        # Remove password_confirm and profile fields
         validated_data.pop('password_confirm')
-        first_name = validated_data.pop('first_name')
-        last_name = validated_data.pop('last_name')
-        school_id = validated_data.pop('school_id', None)
-        
-        # Create user
-        user = User.objects.create_user(**validated_data)
-        
-        # Create corresponding profile based on role
-        school = None
-        if school_id:
-            try:
-                school = School.objects.get(id=school_id)
-            except School.DoesNotExist:
-                school = School.objects.first()  # Default to first school
-        
-        profile_data = {
-            'user': user,
-            'first_name': first_name,
-            'last_name': last_name,
-            'school': school
-        }
-        
-        if user.role == 'Student':
-            StudentProfile.objects.create(
-                student_id=f"STU{user.id.hex[:8].upper()}",
-                admission_date=timezone.now().date(),
-                **profile_data
-            )
-        elif user.role == 'Teacher':
-            TeacherProfile.objects.create(
-                employee_id=f"TEA{user.id.hex[:8].upper()}",
-                **profile_data
-            )
-        elif user.role == 'Parent':
-            ParentProfile.objects.create(**profile_data)
-        elif user.role == 'Principal':
-            PrincipalProfile.objects.create(
-                employee_id=f"PRI{user.id.hex[:8].upper()}",
-                **profile_data
-            )
-        elif user.role == 'Developer':
-            DeveloperProfile.objects.create(**profile_data)
-        
+        password = validated_data.pop('password')
+        user = User.objects.create_user(password=password,**validated_data)
+        user.save()
         return user
 
-class UserLoginSerializer(serializers.Serializer):
-    """User login serializer"""
-    email = serializers.EmailField()
+class UserLoginSerializer(TokenObtainPairSerializer):
+    username = serializers.CharField()
     password = serializers.CharField(write_only=True)
-    
-    def validate(self, attrs):
-        email = attrs.get('email')
-        password = attrs.get('password')
-        
-        if email and password:
-            user = authenticate(username=email, password=password)
-            
-            if not user:
-                raise serializers.ValidationError('Invalid email or password')
-            
-            if not user.is_active:
-                raise serializers.ValidationError('User account is disabled')
-            
-            attrs['user'] = user
-            return attrs
-        else:
-            raise serializers.ValidationError('Email and password are required')
 
-class UserProfileSerializer(serializers.ModelSerializer):
-    """User profile serializer"""
-    full_name = serializers.SerializerMethodField()
-    profile_data = serializers.SerializerMethodField()
-    
+    def validate(self, attrs):
+        print('b')
+        username = attrs.get('username')
+        password = attrs.get('password')
+        print(f"[LOGIN DEBUG] Incoming login attempt: {username}")
+
+        user = None
+        # Try username first
+        try:
+            user = User.objects.get(username=username)
+            print(f"[LOGIN DEBUG] Found user by username: {user.username}")
+        except User.DoesNotExist:
+            print(f"[LOGIN DEBUG] No user found with username: {username}")
+            # Try email if not found by username
+            try:
+                user = User.objects.get(email=username)
+                print(f"[LOGIN DEBUG] Found user by email: {user.email}")
+            except User.DoesNotExist:
+                print(f"[LOGIN DEBUG] No user found with email: {username}")
+                pass
+
+        if user is not None:
+            if user.check_password(password):
+                print(f"[LOGIN DEBUG] Password correct for user: {user.username}")
+                if not user.is_active:
+                    print(f"[LOGIN DEBUG] User {user.username} is inactive.")
+                    raise serializers.ValidationError('User account is disabled.')
+                self.user = user
+                data = super().validate({'username': user.username, 'password': password})
+                data['user'] = {
+                    'id': user.id,
+                    'username': user.username,
+                    'email': user.email,
+                    'first_name': user.first_name,
+                    'last_name': user.last_name,
+                    'role': user.role,
+                    'phone': user.phone,
+                }
+                # Add profile data based on role
+                try:
+                    if user.role == 'TEACHER':
+                        profile = TeacherProfile.objects.get(user=user)
+                        data['profile'] = {
+                            'employee_id': profile.employee_id,
+                            'school': profile.school.name,
+                            'subjects': [subject.name for subject in profile.subjects.all()]
+                        }
+                    elif user.role == 'STUDENT':
+                        profile = StudentProfile.objects.get(user=user)
+                        data['profile'] = {
+                            'student_id': profile.student_id,
+                            'school': profile.school.name,
+                            'class': profile.class_assigned.name,
+                            'section': profile.section.name
+                        }
+                    elif user.role == 'PARENT':
+                        profile = ParentProfile.objects.get(user=user)
+                        data['profile'] = {
+                            'children': [child.full_name for child in profile.children.all()]
+                        }
+                except Exception as e:
+                    print(f"[LOGIN DEBUG] Error fetching profile: {e}")
+                return data
+            else:
+                print(f"[LOGIN DEBUG] Incorrect password for user: {user.username}")
+        else:
+            print(f"[LOGIN DEBUG] No user found for login: {username}")
+
+        print(f"[LOGIN DEBUG] Invalid credentials for login: {username}")
+        raise serializers.ValidationError('Invalid credentials')
+
     class Meta:
         model = User
-        fields = ['id', 'email', 'username', 'role', 'is_active', 
-                 'created_at', 'full_name', 'profile_data']
-        read_only_fields = ['id', 'role', 'created_at']
-    
-    def get_full_name(self, obj):
-        try:
-            if obj.role == 'STUDENT':
-                return obj.studentprofile_profile.full_name
-            elif obj.role == 'TEACHER':
-                return obj.teacherprofile_profile.full_name
-            elif obj.role == 'PARENT':
-                return obj.parentprofile_profile.full_name
-            elif obj.role == 'PRINCIPAL':
-                return obj.principalprofile_profile.full_name
-            elif obj.role == 'DEVELOPER':
-                return obj.developerprofile_profile.full_name
-        except:
-            return f"{obj.first_name} {obj.last_name}"
-    
-    def get_profile_data(self, obj):
-        try:
-            if obj.role == 'STUDENT':
-                profile = obj.studentprofile_profile
-                return {
-                    'student_id': profile.student_id,
-                    'school': profile.school.name,
-                    'phone': profile.phone,
-                    'address': profile.address
-                }
-            elif obj.role == 'TEACHER':
-                profile = obj.teacherprofile_profile
-                return {
-                    'employee_id': profile.employee_id,
-                    'school': profile.school.name,
-                    'subjects': profile.subjects,
-                    'phone': profile.phone
-                }
-            # Add other role profiles...
-        except:
-            return {}
+        fields = ['username', 'password']
 
-class ChangePasswordSerializer(serializers.Serializer):
-    """Change password serializer"""
-    old_password = serializers.CharField(write_only=True)
-    new_password = serializers.CharField(write_only=True, validators=[validate_password])
-    new_password_confirm = serializers.CharField(write_only=True)
-    
+class PasswordChangeSerializer(serializers.Serializer):
+    old_password = serializers.CharField(required=True)
+    new_password = serializers.CharField(required=True, min_length=8)
+    new_password_confirm = serializers.CharField(required=True)
+
     def validate(self, attrs):
         if attrs['new_password'] != attrs['new_password_confirm']:
             raise serializers.ValidationError("New passwords don't match")
         return attrs
+
+    def validate_old_password(self, value):
+        user = self.context['request'].user
+        if not user.check_password(value):
+            raise serializers.ValidationError("Old password is incorrect")
+        return value
+
+class ProfileUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = [
+            'first_name', 'last_name', 'email', 'phone', 'date_of_birth', 'address'
+        ]
+
+    def update(self, instance, validated_data):
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance

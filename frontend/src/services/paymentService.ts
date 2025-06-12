@@ -1,5 +1,5 @@
 
-import { apiService } from './apiService';
+import api from './api';
 
 export interface PaymentTransaction {
   id: string;
@@ -38,33 +38,33 @@ export interface PaymentInitiateRequest {
 
 export const paymentService = {
   // Payment Transactions
-  getTransactions: () => apiService.get<PaymentTransaction[]>('/payments/transactions/'),
+  getTransactions: () => api.get<PaymentTransaction[]>('/payments/transactions/'),
   
   initiatePayment: (data: PaymentInitiateRequest) => 
-    apiService.post('/payments/transactions/initiate_payment/', data),
+    api.post('/payments/transactions/initiate_payment/', data),
   
   confirmPayment: (transactionId: string, gatewayTransactionId: string) =>
-    apiService.post('/payments/transactions/confirm_payment/', {
+    api.post('/payments/transactions/confirm_payment/', {
       transaction_id: transactionId,
       gateway_transaction_id: gatewayTransactionId
     }),
   
   // Payment Plans
-  getPaymentPlans: () => apiService.get<PaymentPlan[]>('/payments/plans/'),
+  getPaymentPlans: () => api.get<PaymentPlan[]>('/payments/plans/'),
   
   createPaymentPlan: (data: Partial<PaymentPlan>) => 
-    apiService.post<PaymentPlan>('/payments/plans/', data),
+    api.post<PaymentPlan>('/payments/plans/', data),
   
   updatePaymentPlan: (id: number, data: Partial<PaymentPlan>) =>
-    apiService.put<PaymentPlan>(`/payments/plans/${id}/`, data),
+    api.put<PaymentPlan>(`/payments/plans/${id}/`, data),
   
-  deletePaymentPlan: (id: number) => apiService.delete(`/payments/plans/${id}/`),
+  deletePaymentPlan: (id: number) => api.delete(`/payments/plans/${id}/`),
   
   // Student Payment Plans
-  getStudentPaymentPlans: () => apiService.get('/payments/student-plans/'),
+  getStudentPaymentPlans: () => api.get('/payments/student-plans/'),
   
   assignPaymentPlan: (studentId: number, planId: number, startDate: string) =>
-    apiService.post('/payments/student-plans/', {
+    api.post('/payments/student-plans/', {
       student: studentId,
       payment_plan: planId,
       start_date: startDate

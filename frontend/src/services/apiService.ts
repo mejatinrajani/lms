@@ -1,6 +1,54 @@
-import axios from 'axios';
+import axios, { AxiosResponse } from 'axios';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = 'http://localhost:8000/api';
+
+// Interfaces for API responses
+export interface PaginatedResponse<T> {
+  data: {
+    count: number;
+    next: string | null;
+    previous: string | null;
+    results: T[];
+  };
+}
+
+export interface User {
+  id: number;
+  username: string;
+  email: string;
+  first_name?: string | null;
+  last_name?: string;
+  full_name?: string | null;
+}
+
+export interface LoginCredentials {
+  username: string;
+  password: string;
+}
+
+export interface Class {
+  id: number;
+  name: string;
+}
+
+export interface Section {
+  id: number;
+  name?: string;
+  section?: string; // Adjust based on backend field
+}
+
+export interface Student {
+  id: number;
+  user: {
+    id: number;
+    full_name?: string | null;
+    first_name?: string | null;
+    last_name?: string | null;
+  };
+  roll_number: string;
+  class_assigned_id?: number;
+  section_id?: number;
+}
 
 // Create axios instance with default config
 const apiClient = axios.create({
@@ -39,7 +87,7 @@ apiClient.interceptors.response.use(
       if (refreshToken) {
         try {
           const response = await axios.post(`${API_BASE_URL}/auth/token/refresh/`, {
-            refresh: refreshToken
+            refresh: refreshToken,
           });
 
           const newToken = response.data.access;
@@ -66,7 +114,7 @@ apiClient.interceptors.response.use(
       console.error('API Error:', {
         status: error.response.status,
         data: error.response.data,
-        url: error.config?.url
+        url: error.config?.url,
       });
     } else if (error.request) {
       console.error('Network Error - No response received:', error.request);
@@ -115,7 +163,7 @@ const makeAuthenticatedRequest = async (url: string, options: RequestInit = {}) 
 
 // Authentication APIs
 export const authAPI = {
-  login: async (credentials: { email: string; password: string }) => {
+  login: async (credentials: LoginCredentials) => {
     const response = await fetch(`${API_BASE_URL}/auth/login/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -163,55 +211,49 @@ export const authAPI = {
 
 // Academic APIs
 export const academicAPI = {
-  getClasses: async () => {
-    return makeAuthenticatedRequest(`${API_BASE_URL}/academic/classes/`);
+  getClasses: async (): Promise<AxiosResponse<PaginatedResponse<Class>>> => {
+    try {
+      const response = await apiClient.get<PaginatedResponse<Class>>('/core/classes/');
+      console.log('Classes API Response:', response);
+      return response;
+    } catch (error) {
+      console.error('getClasses error:', error);
+      throw error;
+    }
   },
 
-  createClass: async (classData: any) => {
-    return makeAuthenticatedRequest(`${API_BASE_URL}/academic/classes/`, {
-      method: 'POST',
-      body: JSON.stringify(classData),
-    });
+  getSections: async (): Promise<AxiosResponse<PaginatedResponse<Section>>> => {
+    try {
+      const response = await apiClient.get<PaginatedResponse<Section>>('/core/sections/');
+      console.log('Sections API Response:', response);
+      return response;
+    } catch (error) {
+      console.error('getSections error:', error);
+      throw error;
+    }
   },
 
   getSubjects: async () => {
-    return makeAuthenticatedRequest(`${API_BASE_URL}/academic/subjects/`);
+    try {
+      const response = await apiClient.get('/academic/subjects/');
+      console.log('Subjects API Response:', response);
+      return response.data.results;
+    } catch (error) {
+      console.error('getSubjects error:', error);
+      throw error;
+    }
   },
 
-  createSubject: async (subjectData: any) => {
-    return makeAuthenticatedRequest(`${API_BASE_URL}/academic/subjects/`, {
-      method: 'POST',
-      body: JSON.stringify(subjectData),
-    });
-  },
-
-  getMarks: async () => {
-    return makeAuthenticatedRequest(`${API_BASE_URL}/academic/marks/`);
-  },
-
-  uploadMarks: async (marksData: any) => {
-    return makeAuthenticatedRequest(`${API_BASE_URL}/academic/marks/`, {
-      method: 'POST',
-      body: JSON.stringify(marksData),
-    });
-  },
-
-  // NEW: Fetch students for a class
-  getStudents: async (classId: number) => {
-    return makeAuthenticatedRequest(`${API_BASE_URL}/academic/students/${classId}/`);
-  },
-
-  createExam: async (examData: any) => {
-    return makeAuthenticatedRequest(`${API_BASE_URL}/academic/exams/`, {
-      method: 'POST',
-      body: JSON.stringify(examData),
-    });
-  },
-  uploadMark: async (gradeData: any) => {
-    return makeAuthenticatedRequest(`${API_BASE_URL}/academic/grades/`, {
-      method: 'POST',
-      body: JSON.stringify(gradeData),
-    });
+  getStudents: async (classId: number, sectionId?: number): Promise<AxiosResponse<PaginatedResponse<Student>>> => {
+    try {
+      const queryParams = sectionId ? `?class_assigned=${classId}&section=${sectionId}` : `?class_assigned=${classId}`;
+      const response = await apiClient.get<PaginatedResponse<Student>>(`/core/students/${queryParams}`);
+      console.log('Students API Response:', response);
+      return response;
+    } catch (error) {
+      console.error('getStudents error:', error);
+      throw error;
+    }
   },
 };
 
@@ -252,9 +294,6 @@ export const attendanceAPI = {
   },
 };
 
-
-
-
 // Assignments APIs
 export const assignmentsAPI = {
   getAssignments: async () => {
@@ -263,7 +302,7 @@ export const assignmentsAPI = {
 
   createAssignment: async (assignmentData: any) => {
     const formData = new FormData();
-    Object.keys(assignmentData).forEach(key => {
+    Object.keys(assignmentData).forEach((key) => {
       if (assignmentData[key] instanceof File) {
         formData.append(key, assignmentData[key]);
       } else {
@@ -284,7 +323,7 @@ export const assignmentsAPI = {
 
   submitAssignment: async (assignmentId: string, submissionData: any) => {
     const formData = new FormData();
-    Object.keys(submissionData).forEach(key => {
+    Object.keys(submissionData).forEach((key) => {
       if (submissionData[key] instanceof File) {
         formData.append(key, submissionData[key]);
       } else {
@@ -323,7 +362,7 @@ export const resourcesAPI = {
 
   uploadResource: async (resourceData: any) => {
     const formData = new FormData();
-    Object.keys(resourceData).forEach(key => {
+    Object.keys(resourceData).forEach((key) => {
       if (resourceData[key] instanceof File) {
         formData.append(key, resourceData[key]);
       } else {
@@ -512,16 +551,34 @@ export const usersAPI = {
     });
   },
 
-  getStudents: async () => {
-    return makeAuthenticatedRequest(`${API_BASE_URL}/core/students/`);
+  getTeachers: async () => {
+    try {
+      const response = await apiClient.get('/core/teachers/');
+      return response;
+    } catch (error) {
+      console.error('getTeachers error:', error);
+      throw error;
+    }
   },
 
-  getTeachers: async () => {
-    return makeAuthenticatedRequest(`${API_BASE_URL}/core/teachers/`);
+  getStudents: async () => {
+    try {
+      const response = await apiClient.get('/core/students/');
+      return response;
+    } catch (error) {
+      console.error('getStudents error:', error);
+      throw error;
+    }
   },
 
   getParents: async () => {
-    return makeAuthenticatedRequest(`${API_BASE_URL}/core/parents/`);
+    try {
+      const response = await apiClient.get('/core/parents/');
+      return response;
+    } catch (error) {
+      console.error('getParents error:', error);
+      throw error;
+    }
   },
 };
 

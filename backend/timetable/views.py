@@ -1,79 +1,56 @@
-from rest_framework import viewsets, status
-from rest_framework.decorators import action, api_view
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
-from django.shortcuts import get_object_or_404
-
-from .models import TimeSlot, Timetable, TeacherAvailability
-from .serializers import TimeSlotSerializer, TimetableSerializer, TeacherAvailabilitySerializer
-from core.models import Class
-from core.permissions import IsTeacherOrPrincipal
-
-@api_view(['GET'])
-def timetable_status(request):
-    return Response({'status': 'Timetable module is working'})
+from rest_framework import viewsets, permissions
+from core.permissions import IsDeveloper, IsPrincipal, IsTeacher, IsStudent, IsParent
+from .models import TimeSlot, Timetable
+from .serializers import TimeSlotSerializer, TimetableSerializer
+from django.db.models import Q
 
 class TimeSlotViewSet(viewsets.ModelViewSet):
-    queryset = TimeSlot.objects.all()
+    queryset = TimeSlot.objects.all().order_by('start_time')
     serializer_class = TimeSlotSerializer
-    permission_classes = [IsAuthenticated, IsTeacherOrPrincipal]
-    
-    def get_queryset(self):
-        return TimeSlot.objects.filter(school=self.request.user.get_school())
+
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            permission_classes = [IsPrincipal | IsTeacher | IsDeveloper]
+        else:
+            permission_classes = [permissions.IsAuthenticated]
+        return [permission() for permission in permission_classes]
 
 class TimetableViewSet(viewsets.ModelViewSet):
     queryset = Timetable.objects.all()
     serializer_class = TimetableSerializer
-    permission_classes = [IsAuthenticated]
-    
-    def get_queryset(self):
-        user = self.request.user
-        if user.role in ['principal', 'teacher']:
-            return Timetable.objects.filter(school=user.get_school())
-        elif user.role == 'student':
-            return Timetable.objects.filter(class_assigned=user.student_profile.class_assigned)
-        elif user.role == 'parent':
-            student_classes = user.parent_profile.children.values_list('class_assigned', flat=True)
-            return Timetable.objects.filter(class_assigned__in=student_classes)
-        return Timetable.objects.none()
-    
-    @action(detail=False, methods=['get'])
-    def by_class(self, request):
-        class_id = request.query_params.get('class_id')
-        day = request.query_params.get('day')
-        
-        queryset = self.get_queryset()
-        if class_id:
-            queryset = queryset.filter(class_assigned_id=class_id)
-        if day:
-            queryset = queryset.filter(day_of_week=day)
-            
-        serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
-    
-    @action(detail=False, methods=['get'])
-    def by_teacher(self, request):
-        teacher_id = request.query_params.get('teacher_id')
-        day = request.query_params.get('day')
-        
-        queryset = self.get_queryset()
-        if teacher_id:
-            queryset = queryset.filter(teacher_id=teacher_id)
-        if day:
-            queryset = queryset.filter(day_of_week=day)
-            
-        serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
 
-class TeacherAvailabilityViewSet(viewsets.ModelViewSet):
-    queryset = TeacherAvailability.objects.all()
-    serializer_class = TeacherAvailabilitySerializer
-    permission_classes = [IsAuthenticated, IsTeacherOrPrincipal]
-    
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            permission_classes = [IsPrincipal | IsTeacher | IsDeveloper]
+        else:
+            permission_classes = [permissions.IsAuthenticated]
+        return [permission() for permission in permission_classes]
+
     def get_queryset(self):
+        queryset = super().get_queryset()
         user = self.request.user
-        if user.role == 'principal':
-            return TeacherAvailability.objects.filter(teacher__school=user.get_school())
-        elif user.role == 'teacher':
-            return TeacherAvailability.objects.filter(teacher__user=user)
-        return TeacherAvailability.objects.none()
+
+        if hasattr(user, 'studentprofile'):
+            student_profile = user.studentprofile
+            queryset = queryset.filter(
+                class_assigned=student_profile.class_assigned,
+                section=student_profile.section,
+                is_active=True
+            )
+        elif hasattr(user, 'parentprofile'):
+            children = user.parentprofile.children.all()
+            child_classes = [child.class_assigned for child in children]
+            child_sections = [child.section for child in children]
+            queryset = queryset.filter(
+                class_assigned__in=child_classes,
+                section__in=child_sections,
+                is_active=True
+            )
+        elif hasattr(user, 'teacherprofile'):
+            teacher_profile = user.teacherprofile
+            queryset = queryset.filter(
+                Q(section__in=teacher_profile.sections.all()) |
+                Q(teacher=teacher_profile)
+            ).distinct()
+        # Principals, developers, and others see all
+        return queryset.order_by('-created_at')

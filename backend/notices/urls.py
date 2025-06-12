@@ -1,10 +1,11 @@
 
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from . import views
+from .views import NoticeViewSet, NoticeCategoryViewSet
 
 router = DefaultRouter()
-# Add notice viewsets here when created
+router.register(r'notices', NoticeViewSet)
+router.register(r'categories', NoticeCategoryViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),

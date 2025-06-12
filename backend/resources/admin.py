@@ -1,10 +1,17 @@
 
 from django.contrib import admin
-from .models import Resource
+from .models import Resource, ResourceAccess
 
 @admin.register(Resource)
 class ResourceAdmin(admin.ModelAdmin):
-    list_display = ('title', 'resource_type', 'subject', 'class_assigned', 'uploaded_by', 'is_public', 'created_at')
-    list_filter = ('resource_type', 'subject', 'class_assigned', 'is_public', 'uploaded_by', 'created_at')
-    search_fields = ('title', 'description', 'subject__name', 'uploaded_by__first_name', 'uploaded_by__last_name')
-    ordering = ('-created_at',)
+    list_display = ('title', 'subject', 'resource_type', 'uploaded_by', 'is_public', 'created_at')
+    list_filter = ('resource_type', 'is_public', 'subject', 'created_at')
+    search_fields = ('title', 'description')
+    # filter_horizontal = ('allowed_classes',)
+    readonly_fields = ('created_at', 'updated_at')
+
+@admin.register(ResourceAccess)
+class ResourceAccessAdmin(admin.ModelAdmin):
+    list_display = ('resource', 'user', 'accessed_at')
+    list_filter = ('accessed_at',)
+    search_fields = ('resource__title', 'user__username')

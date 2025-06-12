@@ -1,230 +1,158 @@
-from rest_framework import generics, permissions, status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework import viewsets, status, permissions
+from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.parsers import MultiPartParser, FormParser
+from django.db.models import Q, Count
 from django.utils import timezone
-from django.db.models import Count, Avg, Q
-from .models import Assignment, AssignmentSubmission
-from .serializers import (AssignmentSerializer, AssignmentSubmissionSerializer,
-                         AssignmentSubmissionCreateSerializer, AssignmentGradingSerializer)
-from core.models import StudentProfile
+from .models import Assignment, AssignmentSubmission, AssignmentResource
+from .serializers import AssignmentSerializer, SubmissionSerializer, AssignmentResourceSerializer
+from core.permissions import IsDeveloper, IsPrincipal, IsTeacher, IsStudent, IsParent
 
-class AssignmentListCreateView(generics.ListCreateAPIView):
+class AssignmentViewSet(viewsets.ModelViewSet):
     queryset = Assignment.objects.all()
     serializer_class = AssignmentSerializer
     permission_classes = [permissions.IsAuthenticated]
-    
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            permission_classes = [IsTeacher | IsPrincipal]
+        else:
+            permission_classes = [permissions.IsAuthenticated]
+        return [permission() for permission in permission_classes]
+
     def get_queryset(self):
-        queryset = Assignment.objects.select_related('teacher', 'class_assigned', 'subject')
-        
-        # Filter based on user role
+        queryset = super().get_queryset()
         user = self.request.user
-        if user.role == 'teacher':
-            queryset = queryset.filter(teacher=user)
-        elif user.role == 'student':
-            if hasattr(user, 'student_profile'):
-                queryset = queryset.filter(class_assigned=user.student_profile.class_assigned)
-        elif user.role == 'parent':
-            if hasattr(user, 'parent_profile'):
-                children_classes = user.parent_profile.children.values_list('class_assigned', flat=True)
-                queryset = queryset.filter(class_assigned__in=children_classes)
-        
-        # Additional filters
-        class_id = self.request.query_params.get('class', None)
-        subject_id = self.request.query_params.get('subject', None)
-        status_filter = self.request.query_params.get('status', None)
-        
-        if class_id:
-            queryset = queryset.filter(class_assigned_id=class_id)
-        if subject_id:
-            queryset = queryset.filter(subject_id=subject_id)
-        if status_filter:
-            queryset = queryset.filter(status=status_filter)
-            
+
+        if user.is_student:
+            student_profile = user.studentprofile
+            queryset = queryset.filter(
+                class_assigned=student_profile.class_assigned,
+                section=student_profile.section,
+                is_active=True
+            )
+        elif user.is_teacher:
+            teacher_profile = user.teacherprofile
+            queryset = queryset.filter(teacher=teacher_profile)
+        elif user.is_parent:
+            children = user.parentprofile.children.all()
+            queryset = queryset.filter(
+                class_assigned__in=[child.class_assigned for child in children],
+                section__in=[child.section for child in children],
+                is_active=True
+            )
+
         return queryset.order_by('-created_at')
-    
+
     def perform_create(self, serializer):
-        serializer.save(teacher=self.request.user)
+        serializer.save(teacher=self.request.user.teacherprofile)
 
-class AssignmentDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Assignment.objects.all()
-    serializer_class = AssignmentSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    @action(detail=True, methods=['post'], parser_classes=[MultiPartParser, FormParser])
+    def upload_resource(self, request, pk=None):
+        """Upload resource files for assignment"""
+        assignment = self.get_object()
+        file = request.FILES.get('file')
 
-class AssignmentSubmissionListCreateView(generics.ListCreateAPIView):
-    queryset = AssignmentSubmission.objects.all()
-    permission_classes = [permissions.IsAuthenticated]
-    
-    def get_serializer_class(self):
-        if self.request.method == 'POST':
-            return AssignmentSubmissionCreateSerializer
-        return AssignmentSubmissionSerializer
-    
-    def get_queryset(self):
-        queryset = AssignmentSubmission.objects.select_related(
-            'assignment', 'student__user', 'graded_by'
+        if not file:
+            return Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
+
+        resource = AssignmentResource.objects.create(
+            assignment=assignment,
+            file=file,
+            filename=file.name,
+            file_size=file.size
         )
-        
-        user = self.request.user
-        if user.role == 'student':
-            if hasattr(user, 'student_profile'):
-                queryset = queryset.filter(student=user.student_profile)
-        elif user.role == 'teacher':
-            queryset = queryset.filter(assignment__teacher=user)
-        elif user.role == 'parent':
-            if hasattr(user, 'parent_profile'):
-                children_ids = user.parent_profile.children.values_list('id', flat=True)
-                queryset = queryset.filter(student_id__in=children_ids)
-        
-        # Additional filters
-        assignment_id = self.request.query_params.get('assignment', None)
-        student_id = self.request.query_params.get('student', None)
-        status_filter = self.request.query_params.get('status', None)
-        
-        if assignment_id:
-            queryset = queryset.filter(assignment_id=assignment_id)
-        if student_id:
-            queryset = queryset.filter(student_id=student_id)
-        if status_filter:
-            queryset = queryset.filter(status=status_filter)
-            
-        return queryset.order_by('-submitted_at')
-    
-    def perform_create(self, serializer):
-        # Get student profile for current user
-        if self.request.user.role == 'student':
-            student_profile = self.request.user.student_profile
-            submission = serializer.save(student=student_profile)
-            
-            # Check if submission is late
-            if submission.submitted_at > submission.assignment.due_date:
-                submission.status = 'late'
-                submission.save()
 
-class AssignmentSubmissionDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = AssignmentSubmission.objects.all()
-    serializer_class = AssignmentSubmissionSerializer
-    permission_classes = [permissions.IsAuthenticated]
+        serializer = AssignmentResourceSerializer(resource)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-@api_view(['POST'])
-@permission_classes([permissions.IsAuthenticated])
-def grade_submission(request, submission_id):
-    """Grade an assignment submission"""
-    try:
-        submission = AssignmentSubmission.objects.get(id=submission_id)
-        
-        # Check if user is teacher of this assignment
-        if request.user != submission.assignment.teacher:
-            return Response(
-                {'error': 'Only the assignment teacher can grade submissions'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        serializer = AssignmentGradingSerializer(submission, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save(
-                graded_by=request.user,
-                graded_at=timezone.now(),
-                status='graded'
-            )
-            return Response(AssignmentSubmissionSerializer(submission).data)
-        
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        
-    except AssignmentSubmission.DoesNotExist:
-        return Response({'error': 'Submission not found'}, status=status.HTTP_404_NOT_FOUND)
+    @action(detail=True, methods=['get'])
+    def submissions(self, request, pk=None):
+        """Get all submissions for an assignment"""
+        assignment = self.get_object()
+        submissions = assignment.submissions.all()
+        serializer = SubmissionSerializer(submissions, many=True)
+        return Response(serializer.data)
 
-@api_view(['GET'])
-@permission_classes([permissions.IsAuthenticated])
-def assignment_statistics(request, assignment_id):
-    """Get statistics for an assignment"""
-    try:
-        assignment = Assignment.objects.get(id=assignment_id)
-        
-        submissions = AssignmentSubmission.objects.filter(assignment=assignment)
-        total_students = assignment.class_assigned.students.count()
-        submitted_count = submissions.count()
-        graded_count = submissions.filter(status='graded').count()
-        late_count = submissions.filter(status='late').count()
-        
-        # Calculate average marks
-        graded_submissions = submissions.filter(marks_obtained__isnull=False)
-        avg_marks = graded_submissions.aggregate(Avg('marks_obtained'))['marks_obtained__avg']
-        
-        return Response({
-            'assignment_id': assignment.id,
-            'assignment_title': assignment.title,
+    @action(detail=True, methods=['get'])
+    def statistics(self, request, pk=None):
+        """Get statistics for an assignment"""
+        assignment = self.get_object()
+
+        total_students = assignment.section.studentprofile_set.count()
+        submitted_count = assignment.submissions.count()
+        graded_count = assignment.submissions.filter(marks_obtained__isnull=False).count()
+        late_submissions = assignment.submissions.filter(is_late=True).count()
+
+        stats = {
             'total_students': total_students,
             'submitted_count': submitted_count,
+            'pending_submissions': total_students - submitted_count,
             'graded_count': graded_count,
-            'late_count': late_count,
-            'submission_percentage': (submitted_count / total_students * 100) if total_students > 0 else 0,
-            'grading_percentage': (graded_count / submitted_count * 100) if submitted_count > 0 else 0,
-            'average_marks': round(avg_marks, 2) if avg_marks else None,
-        })
-        
-    except Assignment.DoesNotExist:
-        return Response({'error': 'Assignment not found'}, status=status.HTTP_404_NOT_FOUND)
+            'pending_grading': submitted_count - graded_count,
+            'late_submissions': late_submissions,
+            'submission_rate': (submitted_count / total_students * 100) if total_students > 0 else 0
+        }
 
-@api_view(['GET'])
-@permission_classes([permissions.IsAuthenticated])
-def student_assignment_progress(request, student_id):
-    """Get assignment progress for a specific student"""
-    try:
-        student = StudentProfile.objects.get(id=student_id)
-        
-        # Get all assignments for student's class
-        assignments = Assignment.objects.filter(
-            class_assigned=student.class_assigned,
-            status='assigned'
-        )
-        
-        progress_data = []
-        for assignment in assignments:
-            try:
-                submission = AssignmentSubmission.objects.get(
-                    assignment=assignment,
-                    student=student
-                )
-                progress_data.append({
-                    'assignment_id': assignment.id,
-                    'assignment_title': assignment.title,
-                    'due_date': assignment.due_date,
-                    'max_marks': assignment.max_marks,
-                    'submitted': True,
-                    'submission_status': submission.status,
-                    'marks_obtained': submission.marks_obtained,
-                    'submission_date': submission.submitted_at,
-                    'is_late': submission.is_late,
-                    'grade_percentage': submission.grade_percentage,
-                })
-            except AssignmentSubmission.DoesNotExist:
-                progress_data.append({
-                    'assignment_id': assignment.id,
-                    'assignment_title': assignment.title,
-                    'due_date': assignment.due_date,
-                    'max_marks': assignment.max_marks,
-                    'submitted': False,
-                    'submission_status': None,
-                    'marks_obtained': None,
-                    'submission_date': None,
-                    'is_late': False,
-                    'grade_percentage': None,
-                })
-        
-        return Response({
-            'student_id': student.id,
-            'student_name': student.user.get_full_name(),
-            'class_name': f"{student.class_assigned.name} - {student.class_assigned.section}",
-            'assignments': progress_data
-        })
-        
-    except StudentProfile.DoesNotExist:
-        return Response({'error': 'Student not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(stats)
 
-from rest_framework import viewsets
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
+class SubmissionViewSet(viewsets.ModelViewSet):
+    queryset = AssignmentSubmission.objects.all()
+    serializer_class = SubmissionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
 
-@api_view(['GET'])
-def assignments_status(request):
-    return Response({'status': 'Assignments module is working'})
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user = self.request.user
+
+        if user.is_student:
+            queryset = queryset.filter(student=user.studentprofile)
+        elif user.is_teacher:
+            teacher_profile = user.teacherprofile
+            queryset = queryset.filter(assignment__teacher=teacher_profile)
+        elif user.is_parent:
+            children = user.parentprofile.children.all()
+            queryset = queryset.filter(student__in=children)
+
+        return queryset.order_by('-submitted_at')
+
+    def get_permissions(self):
+        if self.action == 'create':
+            permission_classes = [IsStudent]
+        elif self.action in ['update', 'partial_update']:
+            permission_classes = [IsTeacher | IsPrincipal]
+        elif self.action == 'destroy':
+            permission_classes = [IsStudent | IsTeacher | IsPrincipal]
+        else:
+            permission_classes = [permissions.IsAuthenticated]
+        return [permission() for permission in permission_classes]
+
+    @action(detail=True, methods=['post'])
+    def grade(self, request, pk=None):
+        """Grade a submission"""
+        submission = self.get_object()
+        marks = request.data.get('marks_obtained')
+        feedback = request.data.get('feedback', '')
+
+        if marks is None:
+            return Response({'error': 'marks_obtained is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            marks = float(marks)
+            if marks < 0 or marks > submission.assignment.max_marks:
+                return Response({
+                    'error': f'Marks must be between 0 and {submission.assignment.max_marks}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+        except (ValueError, TypeError):
+            return Response({'error': 'Invalid marks value'}, status=status.HTTP_400_BAD_REQUEST)
+
+        submission.marks_obtained = marks
+        submission.feedback = feedback
+        submission.graded_by = request.user.teacherprofile
+        submission.graded_at = timezone.now()
+        submission.save()
+
+        serializer = self.get_serializer(submission)
+        return Response(serializer.data)

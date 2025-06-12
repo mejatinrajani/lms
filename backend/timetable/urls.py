@@ -1,10 +1,10 @@
-
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from . import views
+from .views import TimeSlotViewSet, TimetableViewSet
 
 router = DefaultRouter()
-# Add timetable viewsets here when created
+router.register(r'time-slots', TimeSlotViewSet)
+router.register(r'timetables', TimetableViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),

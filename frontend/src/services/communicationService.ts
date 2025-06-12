@@ -1,5 +1,5 @@
 
-import { apiService } from './apiService';
+import api from './api'
 
 export interface Message {
   id: string;
@@ -55,35 +55,35 @@ export interface ParentTeacherMeeting {
 
 export const communicationService = {
   // Messages
-  getMessages: () => apiService.get<Message[]>('/communications/messages/'),
+  getMessages: () => api.get<Message[]>('/communications/messages/'),
   
   sendMessage: (data: Partial<Message>) => 
-    apiService.post<Message>('/communications/messages/', data),
+    api.post<Message>('/communications/messages/', data),
   
   markAsRead: (messageId: string) =>
-    apiService.post(`/communications/messages/${messageId}/mark_as_read/`),
+    api.post(`/communications/messages/${messageId}/mark_as_read/`),
   
-  getUnreadMessages: () => apiService.get<Message[]>('/communications/messages/unread/'),
+  getUnreadMessages: () => api.get<Message[]>('/communications/messages/unread/'),
   
   // Chat Rooms
-  getChatRooms: () => apiService.get<ChatRoom[]>('/communications/chat-rooms/'),
+  getChatRooms: () => api.get<ChatRoom[]>('/communications/chat-rooms/'),
   
   createChatRoom: (data: Partial<ChatRoom>) =>
-    apiService.post<ChatRoom>('/communications/chat-rooms/', data),
+    api.post<ChatRoom>('/communications/chat-rooms/', data),
   
   // Chat Messages
   getChatMessages: (roomId: number) => 
-    apiService.get<ChatMessage[]>(`/communications/chat-messages/?room_id=${roomId}`),
+    api.get<ChatMessage[]>(`/communications/chat-messages/?room_id=${roomId}`),
   
   sendChatMessage: (data: Partial<ChatMessage>) =>
-    apiService.post<ChatMessage>('/communications/chat-messages/', data),
+    api.post<ChatMessage>('/communications/chat-messages/', data),
   
   // Parent-Teacher Meetings
-  getMeetings: () => apiService.get<ParentTeacherMeeting[]>('/communications/meetings/'),
+  getMeetings: () => api.get<ParentTeacherMeeting[]>('/communications/meetings/'),
   
   scheduleMeeting: (data: Partial<ParentTeacherMeeting>) =>
-    apiService.post<ParentTeacherMeeting>('/communications/meetings/', data),
+    api.post<ParentTeacherMeeting>('/communications/meetings/', data),
   
   updateMeeting: (id: number, data: Partial<ParentTeacherMeeting>) =>
-    apiService.put<ParentTeacherMeeting>(`/communications/meetings/${id}/`, data),
+    api.put<ParentTeacherMeeting>(`/communications/meetings/${id}/`, data),
 };

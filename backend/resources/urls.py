@@ -1,10 +1,11 @@
 
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from . import views
+from .views import ResourceViewSet, ResourceCategoryViewSet
 
 router = DefaultRouter()
-# Add resource viewsets here when created
+router.register(r'resources', ResourceViewSet)
+router.register(r'categories', ResourceCategoryViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),
